@@ -3,32 +3,32 @@ from scipy.integrate import solve_ivp
 import streamlit as st
 import plotly.graph_objects as go
 
-# ===============================
-# 1. PARAMETER TANGKI
-# ===============================
+# =====================================
+# 1. PARAMETER SISTEM TANGKI AIR
+# =====================================
 
 class TankConfig:
 
     def __init__(self):
 
-        # Dimensi tangki silinder
-        self.radius = 1.0          # meter
-        self.height = 3.0          # meter
+        # Dimensi tangki
+        self.radius = 1.0
+        self.height = 3.0
 
         # Debit air
-        self.inlet_flow = 0.05     # m3/s
-        self.outlet_flow = 0.03    # m3/s
+        self.inlet_flow = 0.05
+        self.outlet_flow = 0.03
 
         # Kondisi awal
-        self.initial_height = 0.5  # meter
+        self.initial_height = 0.5
 
-        # Waktu simulasi
-        self.simulation_time = 200 # detik
+        # waktu simulasi
+        self.simulation_time = 200
 
 
-# ===============================
+# =====================================
 # 2. MODEL FISIKA
-# ===============================
+# =====================================
 
 class TankModel:
 
@@ -45,12 +45,14 @@ class TankModel:
         Qin = self.config.inlet_flow
         Qout = self.config.outlet_flow
 
-        return (Qin - Qout) / A
+        dh = (Qin - Qout) / A
+
+        return dh
 
 
-# ===============================
+# =====================================
 # 3. SIMULASI
-# ===============================
+# =====================================
 
 class TankSimulator:
 
@@ -62,6 +64,7 @@ class TankSimulator:
     def run(self):
 
         t_span = (0, self.config.simulation_time)
+
         t_eval = np.linspace(0, self.config.simulation_time, 500)
 
         sol = solve_ivp(
@@ -71,14 +74,51 @@ class TankSimulator:
             t_eval=t_eval
         )
 
-        return sol.t, sol.y[0]
+        height = sol.y[0]
+
+        # batasi tinggi air
+        height = np.clip(height, 0, self.config.height)
+
+        return sol.t, height
 
 
-# ===============================
-# 4. VISUALISASI
-# ===============================
+# =====================================
+# 4. PERHITUNGAN ANALISIS
+# =====================================
 
-def plot_height(time, height):
+def time_to_fill(config):
+
+    A = np.pi * config.radius**2
+
+    net_flow = config.inlet_flow - config.outlet_flow
+
+    if net_flow <= 0:
+        return None
+
+    volume_needed = A * (config.height - config.initial_height)
+
+    return volume_needed / net_flow
+
+
+def time_to_empty(config):
+
+    A = np.pi * config.radius**2
+
+    net_flow = config.outlet_flow - config.inlet_flow
+
+    if net_flow <= 0:
+        return None
+
+    volume = A * config.initial_height
+
+    return volume / net_flow
+
+
+# =====================================
+# 5. VISUALISASI
+# =====================================
+
+def plot_height(time, height, config):
 
     fig = go.Figure()
 
@@ -89,19 +129,26 @@ def plot_height(time, height):
         name='Ketinggian Air'
     ))
 
+    fig.add_hline(
+        y=config.height,
+        line_dash="dash",
+        line_color="red",
+        annotation_text="Batas Tangki"
+    )
+
     fig.update_layout(
-        title="Perubahan Ketinggian Air dalam Tangki",
+        title="Profil Ketinggian Air dalam Tangki",
         xaxis_title="Waktu (detik)",
-        yaxis_title="Ketinggian Air (meter)",
+        yaxis_title="Ketinggian Air (m)",
         template="plotly_white"
     )
 
     return fig
 
 
-# ===============================
-# 5. STREAMLIT APP
-# ===============================
+# =====================================
+# 6. STREAMLIT APP
+# =====================================
 
 def main():
 
@@ -127,18 +174,29 @@ def main():
 
     st.subheader("Grafik Ketinggian Air")
 
-    fig = plot_height(time, height)
+    fig = plot_height(time, height, config)
 
     st.plotly_chart(fig)
 
-    st.write("### Analisis")
+    st.subheader("Analisis Studi Kasus")
+
+    fill_time = time_to_fill(config)
+    empty_time = time_to_empty(config)
+
+    if fill_time:
+        st.success(f"Waktu tangki penuh ≈ {fill_time:.2f} detik")
+
+    if empty_time:
+        st.warning(f"Waktu tangki kosong ≈ {empty_time:.2f} detik")
 
     if config.inlet_flow > config.outlet_flow:
-        st.success("Tangki akan terisi penuh")
+        st.info("Debit masuk lebih besar → tangki akan penuh")
+
     elif config.inlet_flow < config.outlet_flow:
-        st.warning("Tangki akan kosong")
+        st.info("Debit keluar lebih besar → tangki akan kosong")
+
     else:
-        st.info("Volume air stabil")
+        st.info("Debit masuk = keluar → tinggi air stabil")
 
 
 if __name__ == "__main__":
